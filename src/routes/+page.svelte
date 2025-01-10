@@ -26,6 +26,19 @@
 	let animationFrameId: number | null = null;
 	let mounted = false;
 
+	// DOT
+	const dotGeometry = new THREE.SphereGeometry(0.01);
+	const dotMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+	let dot: THREE.Mesh | null = null;
+
+	function updateDot(position: THREE.Vector3) {
+		if (!dot) {
+			dot = new THREE.Mesh(dotGeometry, dotMaterial);
+			scene?.add(dot);
+		}
+		dot.position.copy(position);
+	}
+
 	// INTERACTIVITY
 	let raycaster = new THREE.Raycaster();
 	let mouse = new THREE.Vector2();
@@ -39,7 +52,7 @@
 		if (!camera || !scene) return;
 
 		// Calculate mouse position in normalized device coordinates
-		mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+		mouse.x = -(event.clientX / window.innerWidth) * 2 - 1;
 		mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
 		raycaster.setFromCamera(mouse, camera);
@@ -48,10 +61,16 @@
 		const intersects = raycaster.intersectObjects(scene.children, true);
 
 		if (intersects.length > 0) {
-			if (hoveredObject !== intersects[0].object) {
-				if (hoveredObject) {
-					if (previousMaterial) hoveredObject.material = previousMaterial;
-				}
+			updateDot(intersects[0].point);
+
+			const list = intersects.sort((a, b) => a.distance - b.distance);
+			console.log('1', list[0].distance, list[0].object.userData.admin);
+			console.log('2', list[1].distance, list[1].object.userData.admin);
+			// console.log(list[0].object.userData.admin);
+
+			const closestIntersect = intersects.find((intersect) => intersect.distance < 1); // Adjust 0.1 as needed
+
+			if (closestIntersect || hoveredObject !== closestIntersect.object) {
 				hoveredObject = intersects[0].object;
 				previousMaterial = hoveredObject.material;
 				hoveredObject.material = new THREE.LineBasicMaterial({
@@ -59,11 +78,16 @@
 					transparent: false,
 					opacity: 1
 				});
-			}
-		} else {
-			if (hoveredObject) {
-				hoveredObject.material = previousMaterial!;
-				hoveredObject = null;
+			} else {
+				// Reset hover if no close intersection
+				if (hoveredObject) {
+					hoveredObject.material = new THREE.LineBasicMaterial({
+						color: 0xffffff,
+						transparent: true,
+						opacity: 0.2
+					});
+					hoveredObject = null;
+				}
 			}
 		}
 	}
@@ -200,7 +224,6 @@
 		animationFrameId = requestAnimationFrame(animate);
 		renderer?.render(scene!, camera!);
 		controls?.update();
-		console.log(controls?.getDistance());
 	}
 
 	function handleWindowResize() {
