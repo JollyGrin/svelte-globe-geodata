@@ -19,6 +19,8 @@
 		features: GeoJSONFeature[];
 	};
 
+	const sphereRadius = 2;
+
 	let container: HTMLDivElement;
 	let scene: THREE.Scene | null = null;
 	let camera: THREE.PerspectiveCamera | null = null;
@@ -27,108 +29,7 @@
 	let animationFrameId: number | null = null;
 	let mounted = false;
 
-	// DOT
-	const dotGeometry = new THREE.SphereGeometry(0.01);
-	const dotMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-	let dot: THREE.Mesh | null = null;
-
-	function updateDot(position: THREE.Vector3) {
-		if (!dot) {
-			dot = new THREE.Mesh(dotGeometry, dotMaterial);
-			scene?.add(dot);
-		}
-		dot.position.copy(position);
-	}
-
-	// INTERACTIVITY
-	let raycaster = new THREE.Raycaster();
-	let mouse = new THREE.Vector2();
 	let selectedObject: THREE.Object3D | null = null;
-
-	// Add these to your existing state
-	let hoveredObject: THREE.Object3D | null = null;
-	let previousMaterial: THREE.Material | null = null;
-
-	function onMouseMove(event: MouseEvent) {
-		if (!camera || !scene) return;
-
-		mouse.setX(-(event.clientX / window.innerWidth) * 2 - 1);
-		mouse.setY(-(event.clientY / window.innerHeight) * 2 - 1);
-
-		// Calculate mouse position in normalized device coordinates
-
-		raycaster.setFromCamera(mouse, camera);
-
-		// Check if the mouse is over any line representing a country
-		const intersects = raycaster.intersectObjects(scene.children, true);
-
-		if (intersects.length > 0) {
-			updateDot(intersects[0].point);
-
-			const list = intersects.sort((a, b) => a.distance - b.distance);
-			console.log('1', list[0].distance, list[0].object.userData.admin);
-			console.log('2', list[1].distance, list[1].object.userData.admin);
-			// console.log(list[0].object.userData.admin);
-
-			const closestIntersect = intersects.find((intersect) => intersect.distance < 1); // Adjust 0.1 as needed
-
-			if (closestIntersect || hoveredObject !== closestIntersect.object) {
-				hoveredObject = intersects[0].object;
-				previousMaterial = hoveredObject.material;
-				hoveredObject.material = new THREE.LineBasicMaterial({
-					color: 0xff0000, // Red for hover effect
-					transparent: false,
-					opacity: 1
-				});
-			} else {
-				// Reset hover if no close intersection
-				if (hoveredObject) {
-					hoveredObject.material = new THREE.LineBasicMaterial({
-						color: 0xffffff,
-						transparent: true,
-						opacity: 0.2
-					});
-					hoveredObject = null;
-				}
-			}
-		}
-	}
-
-	function onMouseClick(event: MouseEvent) {
-		if (!camera || !scene || !controls) return;
-
-		mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-		mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-		raycaster.setFromCamera(mouse, camera);
-		const intersects = raycaster.intersectObjects(scene.children, true);
-		if (intersects.length > 0) {
-			selectedObject = intersects[0].object;
-			// Zoom into the selected country
-			const targetPosition = selectedObject.position.clone();
-			const distance = camera!.position.distanceTo(targetPosition);
-			const newPosition = targetPosition
-				.clone()
-				.add(targetPosition.clone().normalize().multiplyScalar(distance));
-
-			console.log({ selectedObject });
-
-			// // Animate camera movement
-			// new Tween(camera!.position)
-			// 	.to(newPosition, 1000)
-			// 	.easing(TWEEN.Easing.Quadratic.Out)
-			// 	.start();
-			// new TWEEN.Tween(controls!.target)
-			// 	.to(targetPosition, 1000)
-			// 	.easing(TWEEN.Easing.Quadratic.Out)
-			// 	.onUpdate(() => {
-			// 		controls!.update();
-			// 	})
-			// 	.start();
-
-			// Here you would typically update OrbitControls or add more animation if needed
-		}
-	}
 
 	function initScene() {
 		if (!mounted || !container) return;
@@ -145,8 +46,6 @@
 		renderer = new THREE.WebGLRenderer({ antialias: true });
 		renderer.setSize(w, h);
 		container.appendChild(renderer.domElement);
-		container.addEventListener('mousemove', onMouseMove, false);
-		container.addEventListener('click', onMouseClick, false);
 
 		controls = new OrbitControls(camera, renderer.domElement);
 
@@ -154,16 +53,16 @@
 		controls!.minDistance = 3;
 		controls.enableDamping = true;
 
-		const geometry = new THREE.SphereGeometry(2);
+		const geometry = new THREE.SphereGeometry(sphereRadius);
 		const lineMat = new THREE.LineBasicMaterial({
 			color: 0xffffff,
 			transparent: true,
-			opacity: 0.2
+			opacity: 0.1
 		});
 
 		const edges = new THREE.EdgesGeometry(geometry, 1);
 		const line = new THREE.LineSegments(edges, lineMat);
-		// scene.add(line);
+		scene.add(line);
 
 		loadGeoJSON();
 		animate();
@@ -180,41 +79,58 @@
 		);
 	}
 
+	function mapPolygonRing(
+		ring: number[][],
+		countryMaterial: THREE.LineBasicMaterial,
+		properties: any
+	) {
+		const points = ring.map((coord) => convertToSphereCoords(coord[1], coord[0], sphereRadius));
+		const geometry = new THREE.BufferGeometry().setFromPoints(points);
+		const line = new THREE.Line(geometry, countryMaterial);
+		line.userData = properties;
+		return line;
+	}
+
+	function fillPolygonRing(
+		ring: number[][],
+		fillMaterial: THREE.MeshBasicMaterial,
+		properties: any
+	) {
+		// fill
+	}
+
 	async function loadGeoJSON() {
 		try {
 			const response = await fetch(basePath + '/geo.json');
 			const data: GeoJSON = await response.json();
 			console.log({ data });
 
-			const radius = 2;
 			const countryMaterial = new THREE.LineBasicMaterial({
 				color: 0x00ff00,
 				transparent: false,
 				opacity: 1
 			});
 
+			const fillMaterial = new THREE.MeshBasicMaterial({
+				color: 0xff0000, // Different color for filling
+				side: THREE.DoubleSide // Ensure visibility from both sides
+			});
+
 			data.features.forEach((feature: GeoJSONFeature) => {
-				if (feature.geometry.type === 'Polygon') {
-					//@ts-expect-error: type array mess
-					feature.geometry.coordinates.forEach((ring: number[][]) => {
-						const points = ring.map((coord) => convertToSphereCoords(coord[1], coord[0], radius));
-						const geometry = new THREE.BufferGeometry().setFromPoints(points);
-						const line = new THREE.Line(geometry, countryMaterial);
-						line.userData = feature.properties;
-						scene?.add(line);
+				if (feature.geometry.type === 'Polygon')
+					feature.geometry.coordinates.forEach((ring) => {
+						//wireframe
+						scene?.add(mapPolygonRing(ring as number[][], countryMaterial, feature.properties));
+						//fill
+						// scene?.add(fillPolygonRing(ring as number[][], fillMaterial, feature.properties));
 					});
-				} else if (feature.geometry.type === 'MultiPolygon') {
-					//@ts-expect-error: type array mess
-					feature.geometry.coordinates.forEach((polygon: number[][][]) => {
-						polygon.forEach((ring: number[][]) => {
-							const points = ring.map((coord) => convertToSphereCoords(coord[1], coord[0], radius));
-							const geometry = new THREE.BufferGeometry().setFromPoints(points);
-							const line = new THREE.Line(geometry, countryMaterial);
-							line.userData = feature.properties;
-							scene?.add(line);
-						});
-					});
-				}
+
+				if (feature.geometry.type === 'MultiPolygon')
+					feature.geometry.coordinates.forEach((polygon) =>
+						polygon.forEach((ring) =>
+							scene?.add(mapPolygonRing(ring as number[][], countryMaterial, feature.properties))
+						)
+					);
 			});
 		} catch (error) {
 			console.error('Error loading GeoJSON:', error);
@@ -268,7 +184,7 @@
 
 <div class="h-[2rem]">
 	<p>
-		{selectedObject?.userData.admin}
+		<!-- {selectedObject?.userData.admin} -->
 	</p>
 </div>
 <div bind:this={container} class="globe-container"></div>
