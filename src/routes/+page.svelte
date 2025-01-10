@@ -180,7 +180,7 @@
 
 	async function loadGeoJSON() {
 		try {
-			const response = await fetch('/geo.json');
+			const response = await fetch('/svelte-globe-geodata/geo.json');
 			const data: GeoJSON = await response.json();
 			console.log({ data });
 
