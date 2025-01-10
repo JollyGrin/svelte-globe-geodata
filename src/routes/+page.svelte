@@ -93,14 +93,106 @@
 		return line;
 	}
 
+	function addIntermediatePoints(ring: number[][], numPointsToAdd: number = 5) {
+		const newRing: number[][] = [];
+		for (let i = 0; i < ring.length; i++) {
+			const current = ring[i];
+			const next = ring[(i + 1) % ring.length]; // Wrap around for last point
+
+			newRing.push(current);
+			for (let j = 1; j <= numPointsToAdd; j++) {
+				const t = j / (numPointsToAdd + 1);
+				const lat = current[1] * (1 - t) + next[1] * t;
+				const lon = current[0] * (1 - t) + next[0] * t;
+				newRing.push([lon, lat]);
+			}
+		}
+		return newRing;
+	}
+
+	function calculateAngle(p1: number[], p2: number[], p3: number[]): number {
+		// Convert to 3D for angle calculation
+		const v1 = convertToSphereCoords(p1[1], p1[0], 1);
+		const v2 = convertToSphereCoords(p2[1], p2[0], 1);
+		const v3 = convertToSphereCoords(p3[1], p3[0], 1);
+
+		// Vectors from p2 to p1 and p2 to p3
+		const vec1 = new THREE.Vector3().subVectors(v1, v2).normalize();
+		const vec2 = new THREE.Vector3().subVectors(v3, v2).normalize();
+
+		// Angle between vectors
+		return Math.acos(vec1.dot(vec2));
+	}
+
+	// Helper function to map a value from one range to another
+	function map(
+		value: number,
+		start1: number,
+		stop1: number,
+		start2: number,
+		stop2: number
+	): number {
+		return start2 + (stop2 - start2) * ((value - start1) / (stop1 - start1));
+	}
+
+	function addPointsAdaptivelyWithConcavity(
+		ring: number[][],
+		minPointsToAdd: number = 3,
+		maxPointsToAdd: number = 10
+	) {
+		const newRing: number[][] = [];
+		for (let i = 0; i < ring.length; i++) {
+			const current = ring[i];
+			const next = ring[(i + 1) % ring.length];
+			const prev = ring[(i - 1 + ring.length) % ring.length];
+
+			newRing.push(current);
+
+			// Calculate if the segment is concave
+			const isConcave = isSegmentConcave(prev, current, next);
+			const pointsToAdd = isConcave
+				? maxPointsToAdd
+				: Math.floor(
+						map(calculateAngle(prev, current, next), 0, Math.PI, minPointsToAdd, maxPointsToAdd)
+					);
+
+			for (let j = 1; j <= pointsToAdd; j++) {
+				const t = j / (pointsToAdd + 1);
+				const lat = current[1] * (1 - t) + next[1] * t;
+				const lon = current[0] * (1 - t) + next[0] * t;
+				newRing.push([lon, lat]);
+			}
+		}
+		return newRing;
+	}
+
+	function isSegmentConcave(p1: number[], p2: number[], p3: number[]): boolean {
+		// Convert to 3D for cross product calculation
+		const v1 = convertToSphereCoords(p1[1], p1[0], 1);
+		const v2 = convertToSphereCoords(p2[1], p2[0], 1);
+		const v3 = convertToSphereCoords(p3[1], p3[0], 1);
+
+		// Vectors from p2 to p1 and p2 to p3
+		const vec1 = new THREE.Vector3().subVectors(v1, v2);
+		const vec2 = new THREE.Vector3().subVectors(v3, v2);
+
+		// Cross product to determine if it's concave (assuming counter-clockwise winding)
+		const cross = new THREE.Vector3().crossVectors(vec1, vec2);
+		const normal = v2.clone().normalize();
+		return cross.dot(normal) < 0;
+	}
 	function fillPolygonRing(
 		ring: number[][],
 		fillMaterial: THREE.MeshBasicMaterial,
 		properties: any
 	) {
 		// Convert coordinates to 3D points on the sphere
-		const points = ring.map((coord) => convertToSphereCoords(coord[1], coord[0], sphereRadius));
+		// const points = ring.map((coord) => convertToSphereCoords(coord[1], coord[0], sphereRadius));
 
+		let detailedRing = addPointsAdaptivelyWithConcavity(ring as number[][], 100, 200);
+		const points = detailedRing.map((coord) =>
+			convertToSphereCoords(coord[1], coord[0], sphereRadius)
+		);
 		// Extract 2D coordinates for Delaunay triangulation (flatten the sphere for triangulation)
 		const flatPoints = [];
 		for (const point of points) {
@@ -143,8 +235,6 @@
 		return mesh;
 	}
 
-
-
 	async function loadGeoJSON() {
 		try {
 			const response = await fetch(basePath + '/geo.json');
@@ -158,8 +248,8 @@
 			});
 
 			const fillMaterial = new THREE.MeshBasicMaterial({
-				// color: 0xff0000, // Different color for filling
-				color: 0x00ff00,
+				color: 0xff0000, // Different color for filling
+				// color: 0x00ff00,
 				side: THREE.DoubleSide, // Ensure visibility from both sides
 				opacity: 1
 			});
