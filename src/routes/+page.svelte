@@ -3,6 +3,7 @@
 	import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 	import { onMount, onDestroy } from 'svelte';
 	import { basePath } from '$lib/helpers';
+	import Delaunator from 'delaunator';
 
 	// Define types for better type checking
 	type GeoJSONFeature = {
@@ -84,6 +85,7 @@
 		countryMaterial: THREE.LineBasicMaterial,
 		properties: any
 	) {
+		console.log({ ring });
 		const points = ring.map((coord) => convertToSphereCoords(coord[1], coord[0], sphereRadius));
 		const geometry = new THREE.BufferGeometry().setFromPoints(points);
 		const line = new THREE.Line(geometry, countryMaterial);
@@ -96,8 +98,52 @@
 		fillMaterial: THREE.MeshBasicMaterial,
 		properties: any
 	) {
-		// fill
+		// Convert coordinates to 3D points on the sphere
+		const points = ring.map((coord) => convertToSphereCoords(coord[1], coord[0], sphereRadius));
+
+		// Extract 2D coordinates for Delaunay triangulation (flatten the sphere for triangulation)
+		const flatPoints = [];
+		for (const point of points) {
+			flatPoints.push(point.x, point.z);
+		}
+
+		// Use Delaunator for triangulation
+		const delaunay = new Delaunator(flatPoints);
+		const triangles = delaunay.triangles;
+
+		// Create geometry for the filled polygon
+		const geometry = new THREE.BufferGeometry();
+
+		// Define vertices
+		const vertices = new Float32Array(triangles.length * 3);
+		for (let i = 0; i < triangles.length; i += 3) {
+			const p1 = points[triangles[i]];
+			const p2 = points[triangles[i + 1]];
+			const p3 = points[triangles[i + 2]];
+
+			vertices[i * 3] = p1.x;
+			vertices[i * 3 + 1] = p1.y;
+			vertices[i * 3 + 2] = p1.z;
+
+			vertices[i * 3 + 3] = p2.x;
+			vertices[i * 3 + 4] = p2.y;
+			vertices[i * 3 + 5] = p2.z;
+
+			vertices[i * 3 + 6] = p3.x;
+			vertices[i * 3 + 7] = p3.y;
+			vertices[i * 3 + 8] = p3.z;
+		}
+
+		geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+
+		// Create mesh
+		const mesh = new THREE.Mesh(geometry, fillMaterial);
+		mesh.userData = properties;
+
+		return mesh;
 	}
+
+
 
 	async function loadGeoJSON() {
 		try {
@@ -112,8 +158,10 @@
 			});
 
 			const fillMaterial = new THREE.MeshBasicMaterial({
-				color: 0xff0000, // Different color for filling
-				side: THREE.DoubleSide // Ensure visibility from both sides
+				// color: 0xff0000, // Different color for filling
+				color: 0x00ff00,
+				side: THREE.DoubleSide, // Ensure visibility from both sides
+				opacity: 1
 			});
 
 			data.features.forEach((feature: GeoJSONFeature) => {
@@ -122,14 +170,16 @@
 						//wireframe
 						scene?.add(mapPolygonRing(ring as number[][], countryMaterial, feature.properties));
 						//fill
-						// scene?.add(fillPolygonRing(ring as number[][], fillMaterial, feature.properties));
+						scene?.add(fillPolygonRing(ring as number[][], fillMaterial, feature.properties));
 					});
 
 				if (feature.geometry.type === 'MultiPolygon')
 					feature.geometry.coordinates.forEach((polygon) =>
-						polygon.forEach((ring) =>
-							scene?.add(mapPolygonRing(ring as number[][], countryMaterial, feature.properties))
-						)
+						polygon.forEach((ring) => {
+							scene?.add(mapPolygonRing(ring as number[][], countryMaterial, feature.properties));
+							//fill
+							scene?.add(fillPolygonRing(ring as number[][], fillMaterial, feature.properties));
+						})
 					);
 			});
 		} catch (error) {
