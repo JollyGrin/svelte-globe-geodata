@@ -2,6 +2,7 @@
 	import * as THREE from 'three';
 	import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 	import { onMount, onDestroy } from 'svelte';
+	import { basePath } from '$lib/helpers';
 
 	// Define types for better type checking
 	type GeoJSONFeature = {
@@ -51,9 +52,10 @@
 	function onMouseMove(event: MouseEvent) {
 		if (!camera || !scene) return;
 
+		mouse.setX(-(event.clientX / window.innerWidth) * 2 - 1);
+		mouse.setY(-(event.clientY / window.innerHeight) * 2 - 1);
+
 		// Calculate mouse position in normalized device coordinates
-		mouse.x = -(event.clientX / window.innerWidth) * 2 - 1;
-		mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
 		raycaster.setFromCamera(mouse, camera);
 
@@ -180,7 +182,7 @@
 
 	async function loadGeoJSON() {
 		try {
-			const response = await fetch('/svelte-globe-geodata/geo.json');
+			const response = await fetch(basePath + '/geo.json');
 			const data: GeoJSON = await response.json();
 			console.log({ data });
 
